@@ -1,0 +1,8 @@
+# Python Environment
+.venv
+
+# Await Files
+.await
+
+# What
+package.json
