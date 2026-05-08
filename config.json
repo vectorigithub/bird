@@ -1,0 +1,40 @@
+{
+  "runtime": {
+    "DEVICE": "amd"
+  },
+  "handler": {
+    "DATA_DIR": "dataset/",
+    "FILE_PATTERNS": [
+      ".*\\.txt$",
+      ".*\\.log$",
+      ".*\\.csv$",
+      ".*\\.tsv$",
+      ".*\\.md$",
+      ".*\\.rst$",
+      ".*\\.json$",
+      ".*\\.yaml$",
+      ".*\\.yml$",
+      ".*\\.toml$",
+      ".*\\.py$",
+      ".*\\.js$",
+      ".*\\.ts$",
+      ".*\\.java$",
+      ".*\\.cpp$",
+      ".*\\.c$",
+      ".*\\.go$",
+      ".*\\.pdf$"
+    ]
+  },
+  "trainer": {
+    "CHECKPOINT_FILE": "model/phoenix/test/",
+    "BLOCK_SIZE": 128,
+    "BATCH_SIZE": 32,
+    "LR": 0.0003,
+    "EPOCHS": 5
+  },
+  "model": {
+    "EMBED_DIM": 128,
+    "N_HEAD": 4,
+    "N_LAYER": 2
+  }
+}

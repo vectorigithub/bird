@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from configure_agent import EMBED_DIM, N_HEAD, N_LAYER, BLOCK_SIZE
+from runtimes.configure_agent import EMBED_DIM, N_HEAD, N_LAYER, BLOCK_SIZE
 
 class TinyTransformerLM(nn.Module):
     def __init__(self, vocab_size: int):

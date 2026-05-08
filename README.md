@@ -1,7 +1,27 @@
  # bird
 
-- Dataset: dataset/
-- Models: model/
-- Run f.bash first.
-- NOTE: This only works for Linux at the moment.
-- WARN: Experimental.
+```info
+RUN: f.bash first.
+TO-DO (1ST RUN): set config.py
+DATASET: "dataset/"
+MODELS: "model/"
+DESC: _This only works for Linux at the moment. Experimental._
+```
+
+```structure
+bird/
+├── .gitignore
+├── README.md
+├── bird.py
+├── config.json
+├── dataset/
+├── f.bash
+├── model/
+├── model.py
+├── requirements.txt
+└── runtimes/
+    ├── configure_agent.py
+    ├── handler_agent.py
+    └── leechers/
+        └── web_search.js
+```
