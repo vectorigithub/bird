@@ -1,4 +1,9 @@
-```
+# Python Spits
+.venv
 __pycache__/
 *.pyc
-```
+
+# Await Files
+.await
+
+# Others
