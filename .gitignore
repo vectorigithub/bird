@@ -1,7 +1,10 @@
-# Python Environment
+# Python Spits
 .venv
+__pycache__/
+*.pyc
 
 # Await Files
 .await
 
 # Others
+struct-info/

@@ -5,7 +5,7 @@ RUN: f.bash first.
 TO-DO (1ST RUN): set config.py
 DATASET: "dataset/"
 MODELS: "model/"
-DESC: _This only works for Linux at the moment. Experimental._
+DESC: This only works for Linux at the moment. Experimental.
 ```
 
 ```structure

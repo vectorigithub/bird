@@ -1,10 +1,10 @@
-// web_search.js
+// leech.web.js
 // A simple Node.js helper to perform web searches via DuckDuckGo Instant Answer API.
 // This file is provided as a helper for training/data augmentation. It's commented
 // and inert by default — you can enable or adapt it as needed.
 
 // Usage (from command line):
-//   node web_search.js "search query"
+//   node leech.web.js "search query"
 
 // Note: DuckDuckGo Instant Answer API returns summary data, not full web scraping.
 // For more comprehensive crawling, replace this implementation with puppeteer
@@ -43,7 +43,7 @@ if (require.main === module) {
   (async () => {
     const q = process.argv.slice(2).join(' ').trim();
     if (!q) {
-      console.error('Usage: node web_search.js "search query"');
+      console.error('Usage: node leech.web.js "search query"');
       process.exit(2);
     }
 

@@ -1,30 +1,54 @@
 from pathlib import Path
 import json
 import torch
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR.parent / "config.json"
 
-
 def _load_config() -> dict:
     if not CONFIG_FILE.exists():
-        raise FileNotFoundError(f"Config file not found at {CONFIG_FILE}")
+        print(f"Warning: Config file not found at {CONFIG_FILE}", file=sys.stderr)
+        return {}
 
     try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        raise ValueError(f"Failed to load config file: {e}")
+        content = CONFIG_FILE.read_text(encoding="utf-8")
+        if not content.strip():
+            print(f"Warning: Config file is empty: {CONFIG_FILE}", file=sys.stderr)
+            return {}
+        return json.loads(content)
+    except OSError as e:
+        print(f"Warning: Failed to read config file: {e}", file=sys.stderr)
+        return {}
+    except json.JSONDecodeError as e:
+        print(f"Warning: Config file contains invalid JSON: {e}", file=sys.stderr)
+        return {}
 
 
 _config = _load_config()
 def _get(section: str, key: str, default=None):
-    """Helper to read settings from a sectioned config with flat-key fallback."""
     # prefer sectioned config
     sec = _config.get(section, {}) if isinstance(_config.get(section, {}), dict) else {}
     if key in sec:
         return sec.get(key)
     # fallback to top-level key for compatibility
     return _config.get(key, default)
+
+
+def _prompt_user_for_value(prompt_text: str, required: bool = True) -> str:
+    try:
+        suffix = " (required)" if required else " (optional, press Enter to skip)"
+        user_input = input(f"{prompt_text}{suffix}: ").strip()
+
+        if not user_input and required:
+            return ""
+        return user_input
+    except EOFError:
+        # Handle case where stdin is closed or not available
+        return ""
+    except KeyboardInterrupt:
+        print("\n\nOperation cancelled by user.")
+        sys.exit(1)
 
 
 # Determine device based on config (supports runtime->DEVICE or top-level DEVICE)
@@ -53,13 +77,80 @@ LR = float(_get("trainer", "LR", 3e-4))
 EPOCHS = int(_get("trainer", "EPOCHS", 5))
 
 
+def ensure_config_valid() -> bool:
+    errors = validate_config()
+
+    if not errors:
+        return True
+
+    print("\n=== Configuration Issues Detected ===")
+    print("Some required configuration values are missing or invalid.")
+    print("Please provide the missing information:\n")
+
+    # Get current values
+    data_dir = _get("handler", "DATA_DIR", _config.get("DATA_DIR", ""))
+    ckpt = _get("trainer", "CHECKPOINT_FILE", _config.get("CHECKPOINT_FILE", ""))
+
+    # Prompt for missing DATA_DIR
+    needs_data_dir = not str(data_dir).strip()
+    if needs_data_dir:
+        user_input = _prompt_user_for_value("Enter path to training data directory (DATA_DIR)", required=True)
+        if not user_input:
+            print("\nNo input was given, incomplete needs to run.", file=sys.stderr)
+            sys.exit(1)
+        data_dir = user_input
+        print(f"✓ DATA_DIR set to: {data_dir}")
+
+    # Prompt for missing CHECKPOINT_FILE
+    needs_ckpt = not str(ckpt).strip()
+    if needs_ckpt:
+        user_input = _prompt_user_for_value("Enter path to save model checkpoint (CHECKPOINT_FILE)", required=True)
+        if not user_input:
+            print("\nNo input was given, incomplete needs to run.", file=sys.stderr)
+            sys.exit(1)
+        ckpt = user_input
+        print(f"✓ CHECKPOINT_FILE set to: {ckpt}")
+
+    # Validate provided paths
+    if data_dir:
+        data_path = Path(data_dir)
+        if not data_path.exists():
+            create_dir = input(f"\nDirectory '{data_path}' does not exist. Create it? (y/n): ").strip().lower()
+            if create_dir == 'y':
+                try:
+                    data_path.mkdir(parents=True, exist_ok=True)
+                    print(f"✓ Created directory: {data_path}")
+                except Exception as e:
+                    print(f"✗ Failed to create directory: {e}", file=sys.stderr)
+                    print("\nNo input was given, incomplete needs to run.", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print("\nNo input was given, incomplete needs to run.", file=sys.stderr)
+                sys.exit(1)
+
+    if ckpt:
+        ckpt_path = Path(ckpt)
+        if not ckpt_path.parent.exists():
+            create_parent = input(f"\nParent directory '{ckpt_path.parent}' does not exist. Create it? (y/n): ").strip().lower()
+            if create_parent == 'y':
+                try:
+                    ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+                    print(f"✓ Created directory: {ckpt_path.parent}")
+                except Exception as e:
+                    print(f"✗ Failed to create directory: {e}", file=sys.stderr)
+                    print("\nNo input was given, incomplete needs to run.", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print("\nNo input was given, incomplete needs to run.", file=sys.stderr)
+                sys.exit(1)
+
+    print("\n=== Configuration Complete ===\n")
+    return True
+
+
 def validate_config() -> list[str]:
-    """
-    Validate configuration settings.
-    Returns a list of error messages. Empty list means config is valid.
-    """
     errors = []
-    
+
     # Required settings that should not be empty (supporting sectioned config)
     data_dir = _get("handler", "DATA_DIR", _config.get("DATA_DIR", ""))
     ckpt = _get("trainer", "CHECKPOINT_FILE", _config.get("CHECKPOINT_FILE", ""))
@@ -84,5 +175,5 @@ def validate_config() -> list[str]:
     ckpt_path = Path(ckpt) if ckpt else None
     if ckpt_path and not ckpt_path.parent.exists():
         errors.append(f"CHECKPOINT_FILE parent directory does not exist: {ckpt_path.parent}")
-    
+
     return errors
