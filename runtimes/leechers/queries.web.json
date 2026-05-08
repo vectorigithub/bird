@@ -1,0 +1,31 @@
+{
+  "_comment": "List of search queries to iterate over for web scraping and model training.",
+  "_usage": "This file is read by leech.web.js to perform multiple searches. Each query in the 'queries' array will be searched and results collected for training data.",
+  "queries": [
+    "machine learning basics",
+    "neural networks explained",
+    "deep learning tutorial",
+    "natural language processing introduction",
+    "computer vision fundamentals",
+    "reinforcement learning concepts",
+    "transformer architecture explained",
+    "attention mechanism in deep learning",
+    "python programming best practices",
+    "data science workflow",
+    "artificial intelligence history",
+    "supervised vs unsupervised learning",
+    "gradient descent optimization",
+    "backpropagation algorithm",
+    "convolutional neural networks",
+    "recurrent neural networks LSTM",
+    "generative adversarial networks GAN",
+    "transfer learning techniques",
+    "model evaluation metrics",
+    "feature engineering methods"
+  ],
+  "_settings": {
+    "max_results_per_query": 10,
+    "output_file": "scraped_results.json",
+    "delay_between_queries_ms": 1000
+  }
+}

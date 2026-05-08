@@ -4,6 +4,7 @@
   },
   "handler": {
     "DATA_DIR": "dataset/",
+    "_comment": "FILE_PATTERNS is deprecated. Use include_extensions, exclude_extensions, include_patterns, or exclude_patterns instead.",
     "FILE_PATTERNS": [
       ".*\\.txt$",
       ".*\\.log$",
@@ -23,7 +24,12 @@
       ".*\\.c$",
       ".*\\.go$",
       ".*\\.pdf$"
-    ]
+    ],
+    "_comment2": "By default, reads ALL text-based files. Uncomment below to customize:",
+    "_include_extensions": [".py", ".js", ".md", ".txt"],
+    "_exclude_extensions": [".log", ".tmp"],
+    "_include_patterns": [".*\\.py$", ".*src/.*"],
+    "_exclude_patterns": [".*test.*", ".*__pycache__.*", ".*node_modules.*"]
   },
   "trainer": {
     "CHECKPOINT_FILE": "model/phoenix/test/",

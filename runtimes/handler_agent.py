@@ -1,14 +1,52 @@
 import os
 import re
+import json
 import logging
 from pathlib import Path
 from functools import lru_cache
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Union
 import torch
 from torch.utils.data import Dataset
 
 from runtimes.configure_agent import DATA_DIR, FILE_PATTERNS, BLOCK_SIZE
 logger = logging.getLogger(__name__)
+
+# Default extensions for text-based files (character/byte readable)
+DEFAULT_TEXT_EXTENSIONS = {
+    # Plain text and documentation
+    '.txt', '.md', '.markdown', '.rst', '.text', '.doc', '.rtf',
+    # Code files
+    '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.cpp', '.c', '.h', '.hpp',
+    '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala', '.r',
+    '.m', '.mm', '.lua', '.pl', '.pm', '.sh', '.bash', '.zsh', '.fish',
+    '.ps1', '.bat', '.cmd', '.vbs', '.vb', '.asm', '.s', '.S',
+    # Data and config formats
+    '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+    '.properties', '.env', '.dotenv',
+    # Web files
+    '.html', '.htm', '.xhtml', '.css', '.scss', '.sass', '.less', '.vue', '.svelte',
+    # Data files
+    '.csv', '.tsv', '.log', '.sql', '.graphql', '.gql',
+    # Notebook and markup
+    '.ipynb', '.tex', '.latex', '.bib',
+    # Other text formats
+    '.diff', '.patch', '.gitignore', '.gitattributes', '.editorconfig',
+    '.makefile', '.mk', '.cmake', '.dockerfile', '.containerfile',
+}
+
+# Binary extensions to explicitly exclude
+BINARY_EXTENSIONS = {
+    '.pdf', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp', '.tiff',
+    '.mp3', '.mp4', '.avi', '.mov', '.wav', '.flac', '.ogg', '.webm',
+    '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz',
+    '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+    '.db', '.sqlite', '.sqlite3', '.mdb',
+    '.pyc', '.pyo', '.class', '.jar', '.war', '.ear',
+    '.woff', '.woff2', '.ttf', '.eot', '.otf',
+    '.pickle', '.pkl', '.joblib', '.parquet', '.arrow',
+    '.npy', '.npz', '.pt', '.pth', '.onnx', '.pb', '.h5', '.hdf5',
+}
 
 try:
     import pdfplumber
@@ -25,6 +63,109 @@ AMBIGUOUS_EXTENSIONS = {
     ".yaml": "yaml",
     ".yml": "yaml",
 }
+
+def _load_config() -> dict:
+    """Load configuration from config.json file."""
+    config_path = Path(__file__).parent.parent / "config.json"
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Could not load config.json: {e}")
+        return {}
+
+def _get_handler_config() -> dict:
+    """Get handler-specific configuration."""
+    config = _load_config()
+    return config.get('handler', {})
+
+def _is_text_file(file_path: Path) -> bool:
+    """
+    Determine if a file is text-based by checking its extension.
+    Returns True for text files, False for binary files.
+    """
+    suffix = file_path.suffix.lower()
+
+    # Explicitly exclude known binary formats
+    if suffix in BINARY_EXTENSIONS:
+        return False
+
+    # Include known text formats
+    if suffix in DEFAULT_TEXT_EXTENSIONS:
+        return True
+
+    # For unknown extensions, try to detect if it's text by reading a sample
+    try:
+        with open(file_path, 'rb') as f:
+            chunk = f.read(8192)
+            # Check for null bytes (common in binary files)
+            if b'\x00' in chunk:
+                return False
+            # Try to decode as UTF-8
+            try:
+                chunk.decode('utf-8')
+                return True
+            except UnicodeDecodeError:
+                # Try latin-1 as fallback (accepts all byte values)
+                try:
+                    chunk.decode('latin-1')
+                    # If we got here, check if it looks like reasonable text
+                    # by looking for common text patterns
+                    text = chunk.decode('latin-1')
+                    # Count printable characters
+                    printable_ratio = sum(c.isprintable() or c.isspace() for c in text) / len(text) if text else 0
+                    return printable_ratio > 0.7
+                except:
+                    return False
+        return True
+    except Exception:
+        return False
+
+def _should_include_file(file_path: Path, handler_config: dict) -> bool:
+    """
+    Determine if a file should be included based on config settings.
+    Config can specify:
+    - include_patterns: list of regex patterns to include
+    - exclude_patterns: list of regex patterns to exclude
+    - include_extensions: list of extensions to include (overrides defaults)
+    - exclude_extensions: list of extensions to exclude
+    """
+    suffix = file_path.suffix.lower()
+
+    # Check exclude_extensions first
+    exclude_extensions = handler_config.get('exclude_extensions', [])
+    if suffix in exclude_extensions:
+        return False
+
+    # Check include_extensions if specified (whitelist mode)
+    include_extensions = handler_config.get('include_extensions', None)
+    if include_extensions is not None:
+        if suffix not in include_extensions:
+            return False
+
+    # Check exclude_patterns
+    exclude_patterns = handler_config.get('exclude_patterns', [])
+    for pattern in exclude_patterns:
+        try:
+            if re.search(pattern, str(file_path), re.IGNORECASE):
+                return False
+        except re.error:
+            logger.warning(f"Invalid regex pattern in exclude_patterns: {pattern}")
+
+    # Check include_patterns
+    include_patterns = handler_config.get('include_patterns', None)
+    if include_patterns is not None:
+        for pattern in include_patterns:
+            try:
+                if re.search(pattern, str(file_path), re.IGNORECASE):
+                    return True
+            except re.error:
+                logger.warning(f"Invalid regex pattern in include_patterns: {pattern}")
+        # If include_patterns is specified but no match, exclude the file
+        return False
+
+    # Default: include all text files that aren't explicitly excluded
+    return True
 
 @lru_cache(maxsize=None)
 def _compiled_patterns(patterns_key: tuple[str, ...]):
@@ -169,29 +310,55 @@ def match_any_pattern(path: Path, patterns: List[str]) -> bool:
 
 @lru_cache(maxsize=1)
 def load_corpus() -> str:
-    if not DATA_DIR:
+    """
+    Load corpus from DATA_DIR, reading all text-based files.
+
+    Configuration options in config.json (handler section):
+    - DATA_DIR: Directory to scan for files (default: "dataset/")
+    - include_extensions: Whitelist of extensions to include
+    - exclude_extensions: Blacklist of extensions to exclude
+    - include_patterns: Regex patterns for files to include
+    - exclude_patterns: Regex patterns for files to exclude
+
+    If no config is specified, reads all text-based files by default.
+    """
+    handler_config = _get_handler_config()
+
+    # Get DATA_DIR from config, fallback to module import
+    data_dir_str = handler_config.get('DATA_DIR', None)
+    if data_dir_str is None and DATA_DIR:
+        data_dir_str = str(DATA_DIR)
+    elif data_dir_str is None:
         logger.warning("DATA_DIR is not configured")
         return ""
 
-    if not DATA_DIR.exists():
-        logger.warning(f"DATA_DIR does not exist: {DATA_DIR}")
+    data_dir = Path(data_dir_str)
+
+    # Handle relative paths (relative to project root)
+    if not data_dir.is_absolute():
+        project_root = Path(__file__).parent.parent
+        data_dir = project_root / data_dir_str
+
+    if not data_dir.exists():
+        logger.warning(f"DATA_DIR does not exist: {data_dir}")
         return ""
 
-    if not DATA_DIR.is_dir():
-        logger.error(f"DATA_DIR is not a directory: {DATA_DIR}")
+    if not data_dir.is_dir():
+        logger.error(f"DATA_DIR is not a directory: {data_dir}")
         return ""
 
     texts = []
     processed_count = 0
+    skipped_count = 0
     error_count = 0
 
     try:
-        all_files = sorted(DATA_DIR.rglob("*"))
+        all_files = sorted(data_dir.rglob("*"))
     except PermissionError as e:
-        logger.error(f"Permission denied accessing DATA_DIR {DATA_DIR}: {e}")
+        logger.error(f"Permission denied accessing DATA_DIR {data_dir}: {e}")
         return ""
     except Exception as e:
-        logger.error(f"Error traversing DATA_DIR {DATA_DIR}: {e}")
+        logger.error(f"Error traversing DATA_DIR {data_dir}: {e}")
         return ""
 
     for p in all_files:
@@ -199,7 +366,16 @@ def load_corpus() -> str:
             if not p.is_file():
                 continue
 
-            if not match_any_pattern(p, FILE_PATTERNS):
+            # Check if file should be included based on config
+            if not _should_include_file(p, handler_config):
+                logger.debug(f"File excluded by config: {p}")
+                skipped_count += 1
+                continue
+
+            # Check if it's a text file
+            if not _is_text_file(p):
+                logger.debug(f"File is not text-based: {p}")
+                skipped_count += 1
                 continue
 
             text = _extract_text(p)
@@ -221,10 +397,11 @@ def load_corpus() -> str:
             error_count += 1
             continue
 
+    total_files = len(all_files)
     if processed_count == 0:
-        logger.warning(f"No valid text extracted from {len(all_files)} files in {DATA_DIR}")
-    elif error_count > 0:
-        logger.info(f"Processed {processed_count} files with {error_count} errors")
+        logger.warning(f"No valid text extracted from {total_files} files in {data_dir}")
+    elif error_count > 0 or skipped_count > 0:
+        logger.info(f"Processed {processed_count} files, skipped {skipped_count}, with {error_count} errors from {total_files} total")
 
     if not texts:
         return ""
