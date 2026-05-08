@@ -1,7 +1,4 @@
-# Python Environment
-.venv
-
-# Await Files
-.await
-
-# Others
+```
+__pycache__/
+*.pyc
+```
