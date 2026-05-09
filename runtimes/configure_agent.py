@@ -3,6 +3,7 @@ import json
 import torch
 import sys
 
+
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR.parent / "config.json"
 
@@ -51,15 +52,67 @@ def _prompt_user_for_value(prompt_text: str, required: bool = True) -> str:
         sys.exit(1)
 
 
+def _is_gpu_available() -> bool:
+    """Check if GPU is available (supports both NVIDIA CUDA and AMD ROCm)."""
+    # Check for NVIDIA CUDA
+    if torch.cuda.is_available():
+        return True
+    # Check for AMD ROCm (PyTorch with ROCm still uses 'cuda' device type)
+    # ROCm availability is indicated by torch.version.hip
+    if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+        # Try to initialize a tensor on CUDA to verify ROCm GPU access
+        try:
+            torch.tensor([1.0], device='cuda')
+            return True
+        except (RuntimeError, AssertionError):
+            pass
+    return False
+
+
 # Determine device based on config (supports runtime->DEVICE or top-level DEVICE)
 def _get_device() -> str:
     device_config = str(_get("runtime", "DEVICE", "auto")).lower()
     if device_config == "cpu":
         return "cpu"
-    elif device_config in {"nvidia", "amd"}:
-        return "cuda" if torch.cuda.is_available() else "cpu"
+    elif device_config in {"gpu", "nvidia", "amd"}:
+        # "gpu", "nvidia", or "amd" all request GPU acceleration
+        return "cuda" if _is_gpu_available() else "cpu"
     else:  # "auto" or default
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return "cuda" if _is_gpu_available() else "cpu"
+
+
+def get_gpu_info():
+    """Get GPU information supporting both NVIDIA CUDA and AMD ROCm.
+
+    Returns:
+        tuple: (gpu_name, gpu_backend, gpu_memory_gb) or (None, None, None) if no GPU
+    """
+    device = _get_device()
+    if device != "cuda":
+        return None, None, None
+
+    gpu_name = "Unknown"
+    gpu_backend = "CUDA"
+    gpu_memory = None
+
+    try:
+        gpu_name = torch.cuda.get_device_name(0)
+    except Exception:
+        pass
+
+    # Check for AMD ROCm
+    if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+        gpu_backend = f"ROCm ({torch.version.hip})"
+    else:
+        # NVIDIA CUDA
+        gpu_backend = f"CUDA ({torch.version.cuda or 'Unknown'})"
+
+    try:
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    except Exception:
+        pass
+
+    return gpu_name, gpu_backend, gpu_memory
 
 
 DEVICE = _get_device()

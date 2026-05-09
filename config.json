@@ -1,9 +1,9 @@
 {
   "runtime": {
-    "DEVICE": "amd"
+    "DEVICE": "gpu"
   },
   "handler": {
-    "DATA_DIR": "",
+    "DATA_DIR": "dataset/",
     "_comment": "FILE_PATTERNS is deprecated. Use include_extensions, exclude_extensions, include_patterns, or exclude_patterns instead.",
     "FILE_PATTERNS": [
       ".*\\.txt$",
@@ -32,7 +32,7 @@
     "_exclude_patterns": [".*test.*", ".*__pycache__.*", ".*node_modules.*"]
   },
   "trainer": {
-    "CHECKPOINT_FILE": "",
+    "CHECKPOINT_FILE": "model/phoenix/checkpoints/checkpoint.pt",
     "BLOCK_SIZE": 128,
     "BATCH_SIZE": 32,
     "LR": 0.0003,
