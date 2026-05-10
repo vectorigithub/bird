@@ -1,15 +1,48 @@
 import torch
 import re
+import os
+import sys
+import argparse
 from functools import lru_cache
 from torch.utils.data import DataLoader
 from torch import optim, nn
 import platform
 import psutil
+from pathlib import Path
 
-from runtimes.configure_agent import DEVICE, BATCH_SIZE, LR, EPOCHS, CHECKPOINT_FILE, DATA_DIR, FILE_PATTERNS, validate_config, get_gpu_info
 from runtimes.handler_agent import load_corpus, CharVocab, TextDataset, match_any_pattern
 from runtimes.train_handler import TrainingHandler, can_resume_training, load_checkpoint
 from model import TinyTransformerLM
+
+
+DEVICE = "cpu"
+BATCH_SIZE = 32
+LR = 3e-4
+EPOCHS = 5
+CHECKPOINT_FILE = Path("model/phoenix/checkpoints/checkpoint.pt")
+DATA_DIR = Path("dataset")
+FILE_PATTERNS = []
+validate_config = lambda: []
+get_gpu_info = lambda: (None, None, None)
+
+
+def initialize_runtime(compute_target: str):
+    """Initialize runtime configuration after compute target is selected."""
+    global DEVICE, BATCH_SIZE, LR, EPOCHS, CHECKPOINT_FILE, DATA_DIR, FILE_PATTERNS, validate_config, get_gpu_info
+
+    os.environ["BIRD_COMPUTE"] = compute_target
+
+    from runtimes import configure_agent as cfg
+
+    DEVICE = cfg.DEVICE
+    BATCH_SIZE = cfg.BATCH_SIZE
+    LR = cfg.LR
+    EPOCHS = cfg.EPOCHS
+    CHECKPOINT_FILE = cfg.CHECKPOINT_FILE
+    DATA_DIR = cfg.DATA_DIR
+    FILE_PATTERNS = cfg.FILE_PATTERNS
+    validate_config = cfg.validate_config
+    get_gpu_info = cfg.get_gpu_info
 
 
 @lru_cache(maxsize=1)
@@ -72,7 +105,7 @@ def display_system_specs():
 
     # GPU info - using centralized function from configure_agent
     print(f"\nDevice: {DEVICE.upper()}")
-    if DEVICE == "cuda":
+    if DEVICE.startswith("cuda"):
         gpu_name, gpu_backend, gpu_memory = get_gpu_info()
         print(f"GPU: {gpu_name}")
         print(f"Backend: {gpu_backend}")
@@ -116,7 +149,7 @@ def train():
         dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        pin_memory=DEVICE == "cuda",
+        pin_memory=DEVICE.startswith("cuda"),
         drop_last=True,
     )
 
@@ -258,19 +291,22 @@ def run_agent():
 
 
 if __name__ == "__main__":
-    import sys
+    parser = argparse.ArgumentParser(description="bird runtime")
+    parser.add_argument("command", choices=["train", "run"], help="command to execute")
+    parser.add_argument("--compute", required=True, help="compute target in gpuN format (e.g., gpu0)")
+    args = parser.parse_args()
 
-    if len(sys.argv) < 2:
-        print("Usage: python bird.py [train|run]")
+    if not re.fullmatch(r"gpu\d+", args.compute.lower()):
+        print("Invalid --compute value. Expected format: gpu0, gpu1, ...", file=sys.stderr)
         sys.exit(1)
 
-    command = sys.argv[1].lower()
+    try:
+        initialize_runtime(args.compute.lower())
+    except Exception as e:
+        print(f"Failed to initialize runtime: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    if command == "train":
+    if args.command == "train":
         train()
-    elif command == "run":
+    elif args.command == "run":
         run_agent()
-    else:
-        print(f"Unknown command: {command}")
-        print("Usage: python bird.py [train|run]")
-        sys.exit(1)

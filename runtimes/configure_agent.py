@@ -2,6 +2,8 @@ from pathlib import Path
 import json
 import torch
 import sys
+import os
+import re
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -69,16 +71,42 @@ def _is_gpu_available() -> bool:
     return False
 
 
+def _get_selected_gpu_index_from_env() -> int | None:
+    """Parse BIRD_COMPUTE env var in format gpuN and return N."""
+    raw = os.getenv("BIRD_COMPUTE", "").strip().lower()
+    if not raw:
+        return None
+
+    match = re.fullmatch(r"gpu(\d+)", raw)
+    if not match:
+        raise ValueError(f"Invalid BIRD_COMPUTE value '{raw}'. Expected format: gpu0, gpu1, ...")
+
+    return int(match.group(1))
+
+
 # Determine device based on config (supports runtime->DEVICE or top-level DEVICE)
 def _get_device() -> str:
+    selected_gpu_index = _get_selected_gpu_index_from_env()
+    if selected_gpu_index is not None:
+        if not _is_gpu_available():
+            raise RuntimeError("GPU was requested via BIRD_COMPUTE, but no GPU is available to PyTorch.")
+
+        gpu_count = torch.cuda.device_count()
+        if selected_gpu_index >= gpu_count:
+            raise RuntimeError(
+                f"Requested gpu{selected_gpu_index}, but only {gpu_count} GPU(s) are available."
+            )
+
+        return f"cuda:{selected_gpu_index}"
+
     device_config = str(_get("runtime", "DEVICE", "auto")).lower()
     if device_config == "cpu":
         return "cpu"
     elif device_config in {"gpu", "nvidia", "amd"}:
         # "gpu", "nvidia", or "amd" all request GPU acceleration
-        return "cuda" if _is_gpu_available() else "cpu"
+        return "cuda:0" if _is_gpu_available() else "cpu"
     else:  # "auto" or default
-        return "cuda" if _is_gpu_available() else "cpu"
+        return "cuda:0" if _is_gpu_available() else "cpu"
 
 
 def get_gpu_info():
@@ -88,15 +116,22 @@ def get_gpu_info():
         tuple: (gpu_name, gpu_backend, gpu_memory_gb) or (None, None, None) if no GPU
     """
     device = _get_device()
-    if device != "cuda":
+    if not device.startswith("cuda"):
         return None, None, None
+
+    gpu_index = 0
+    if ":" in device:
+        try:
+            gpu_index = int(device.split(":", 1)[1])
+        except ValueError:
+            gpu_index = 0
 
     gpu_name = "Unknown"
     gpu_backend = "CUDA"
     gpu_memory = None
 
     try:
-        gpu_name = torch.cuda.get_device_name(0)
+        gpu_name = torch.cuda.get_device_name(gpu_index)
     except Exception:
         pass
 
@@ -108,7 +143,7 @@ def get_gpu_info():
         gpu_backend = f"CUDA ({torch.version.cuda or 'Unknown'})"
 
     try:
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        gpu_memory = torch.cuda.get_device_properties(gpu_index).total_memory / (1024**3)
     except Exception:
         pass
 
